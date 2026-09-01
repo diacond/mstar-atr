@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: 데이터 다운로드 (MSTAR-10)
+        run: bash scripts/download_data.sh
+
+      - name: 피처 추출 (HOG)
+        run: python src/pipeline/build_features.py
+
+      - name: 모델 학습 및 홀드아웃 평가
+        run: python src/model/train.py
+
+      - name: 테스트
+        run: pytest -q
