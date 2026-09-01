@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+data/raw/train/
+data/raw/test/
+data/processed/*.npz
+data/processed/*.joblib
+data/processed/*.json
+data/processed/*.csv
