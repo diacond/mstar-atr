@@ -1,79 +1,57 @@
 # SAR Target Recognition (MSTAR)
 
-합성개구레이더(SAR, Synthetic Aperture Radar) 영상에서 군용 차량
-10종을 자동으로 식별하는 표적 인식(ATR, Automatic Target Recognition)
-파이프라인입니다. 레이더 정찰 영상을 사람이 하나하나 판독하는 대신
-자동으로 1차 분류해주는 서비스를 소규모로 재현한 포트폴리오
-프로젝트입니다.
+합성개구레이더(SAR) 영상에서 군용 차량 10종을 자동으로 식별하는 표적 인식(ATR) 파이프라인. 레이더 정찰 영상의 1차 판독을 자동화하는 서비스를 작은 규모로 구현했다.
+
+> 쉬운 설명은 [PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md)에 정리했다.
 
 ## 문제 정의
 
-SAR은 전천후(날씨·주야 무관)로 촬영 가능한 레이더 영상이라 정찰·감시에
-많이 쓰이지만, 광학 사진과 달리 색상 정보가 없고 촬영 각도에 따라
-같은 물체도 형태가 달라 보여서 사람이 판독하기도, 자동으로 분류하기도
-까다롭습니다. 이 프로젝트는 "SAR 칩(잘라낸 표적 영상) 하나를 보고
-10종의 차량 중 무엇인지 맞히기"라는 표준 벤치마크 문제를 다룹니다.
+SAR은 날씨·주야와 관계없이 촬영할 수 있지만, 색 정보가 없고 촬영 각도에 따라 같은 물체도 다르게 보여 판독이 어렵다. SAR 칩(표적 부분을 잘라낸 영상) 한 장을 보고 10종 차량 중 무엇인지 맞히는 표준 벤치마크 문제를 다룬다.
 
 ## 데이터
 
-[MSTAR Public Targets](https://www.sdms.afrl.af.mil/index.php?collection=mstar&page=targets) —
-미 국방부 산하 Sandia National Labs/AFRL이 SAR 표적 인식 연구용으로
-공개한 데이터셋 중, 가장 널리 쓰이는 10-클래스 SOC(Standard Operating
-Condition) 분할본을 사용합니다. 그레이스케일 SAR 진폭 영상을 JPEG로
-변환해 공개 배포 중인 버전입니다.
+[MSTAR Public Targets](https://www.sdms.afrl.af.mil/index.php?collection=mstar&page=targets)의 10-클래스 SOC(Standard Operating Condition) 분할. 그레이스케일 SAR 영상을 JPEG로 변환한 공개본을 쓴다.
 
-10개 클래스는 전차(T62, T72), 장갑차(BMP2, BRDM_2, BTR60, BTR70),
-자주포(2S1), 대공차량(ZSU_23_4), 트럭(ZIL131), 불도저(D7)입니다.
-학습 데이터는 17도 관측각, 시험 데이터는 15도 관측각으로 촬영된
-서로 다른 사이클의 영상이라, "다른 조건에서 찍은 새 샘플로 시험한다"는
-원칙이 데이터셋 구조 자체에 내장돼 있습니다(train 2,746장 / test
-2,425장).
+| 분류 | 클래스 |
+| --- | --- |
+| 전차 | T62, T72 |
+| 장갑차 | BMP2, BRDM_2, BTR60, BTR70 |
+| 자주포 | 2S1 |
+| 대공차량 | ZSU_23_4 |
+| 트럭 | ZIL131 |
+| 불도저 | D7 |
 
-## 파이프라인 구조
+학습은 17°, 시험은 15° 관측각으로 촬영한 서로 다른 영상이다(학습 2,746장 / 시험 2,425장). 다른 조건에서 찍은 영상으로 시험하는 구조가 데이터셋에 이미 들어 있다.
+
+## 파이프라인
 
 ```
-data/raw/{train,test}/<class>/*.jpeg  (원본, MSTAR Public Targets)
-      │  src/pipeline/build_features.py  (중앙 64x64 크롭 + HOG 특징 추출)
-      ▼
-data/processed/{train,test}_features.npz
-      │  src/model/train.py  (StandardScaler + SVM RBF)
-      ▼
-data/processed/sar_classifier.joblib
-      │  src/api/main.py
-      ▼
+data/raw/{train,test}/<class>/*.jpeg
+   │  src/pipeline/build_features.py   중앙 64x64 크롭 + HOG
+   ▼
+{train,test}_features.npz
+   │  src/model/train.py               StandardScaler + RBF SVM
+   ▼
+sar_classifier.joblib
+   │  src/api/main.py
+   ▼
 POST /v1/sar/classify (이미지 업로드) → { predicted_class, confidence, class_probabilities }
 ```
 
-## 해결 과정에서의 주요 판단
+## 주요 설계 판단
 
-**딥러닝으로 바로 가지 않고 고전적 방법(HOG+SVM)부터 시도한 이유.**
-SAR ATR은 CNN으로도 많이 풀리는 문제지만, 이 프로젝트에서는 일부러
-HOG(방향 기울기 히스토그램) 특징 + 고전적 분류기로 먼저 베이스라인을
-잡았습니다. 왜 이 클래스로 분류했는지, 어떤 클래스 쌍이 왜 헷갈리는지를
-특징 단위로 뜯어보기 쉽다는 점, 그리고 데이터 규모(5천 장 남짓)에서는
-무거운 딥러닝 없이도 실전에 쓸만한 정확도가 나오는지 먼저 확인하고
-싶었기 때문입니다.
+- **CNN 대신 HOG + SVM으로 시작:** 데이터가 5천 장 남짓이고, 어떤 클래스가 왜 헷갈리는지 특징 단위로 분석하기 쉬워서 고전적 방법으로 베이스라인을 먼저 잡았다.
+- **크롭 크기 64:** 128x128로 자르면 정확도가 78%였다. SAR 영상은 표적 주변에 배경 클러터와 스페클 노이즈가 넓게 깔려 있어, 크게 자를수록 노이즈 비중이 커진다.
 
-**크롭 크기를 128 → 64로 줄였더니 정확도가 78%에서 87%로 뛰었습니다.**
-처음엔 원본(192x193)에서 중앙 128x128을 잘라 썼는데 테스트 정확도가
-78%에 그쳤습니다. SAR 영상은 표적 주변에 배경 클러터와 스페클 노이즈가
-넓게 깔려 있는데, 128 크롭이 이 노이즈 영역을 표적 형태보다 더 많이
-담고 있었던 것으로 보입니다. 64/80/96/128 크롭을 비교해보니 64에서
-가장 높았습니다(64: 87%, 80: 84%, 96: 81%, 128: 78%) — "정보를
-더 준다고 항상 좋아지는 게 아니다"라는 걸 여기서도 확인했습니다
-(배터리 프로젝트에서 피처를 늘렸을 때 RUL 예측이 일부 배터리에서
-오히려 나빠졌던 것과 같은 종류의 교훈입니다).
+  | 크롭 | 64 | 80 | 96 | 128 |
+  | --- | --- | --- | --- | --- |
+  | 정확도 | **87%** | 84% | 81% | 78% |
 
-**분류기로 RandomForest 대신 SVM을 쓴 이유.** 같은 HOG 특징으로
-RandomForest를 먼저 돌렸더니 정확도가 60%에 그쳤습니다. HOG는
-1,764차원의 연속형 고차원 피처인데, 트리 기반 모델은 이런 피처의
-미세한 방향 차이보다 축 정렬된 분할에 의존하는 경향이 있어 잘 못
-살리는 것으로 보입니다. 피처를 표준화(StandardScaler)한 뒤 RBF 커널
-SVM에 넣었더니 87%까지 올라가서 이걸로 확정했습니다.
+- **RandomForest 대신 SVM:** 같은 HOG 특징으로 RandomForest는 60%에 그쳤다. 1,764차원 연속형 피처에서는 축 기준 분할에 의존하는 트리 모델이 불리하다. 표준화 후 RBF SVM을 쓰자 87%가 나왔다.
 
 ## 결과
 
-전체 정확도(테스트, 15도 관측각): **86.7%**
+테스트(15° 관측각) 정확도 **86.7%**
 
 | 클래스 | Precision | Recall | F1 | 샘플 수 |
 |---|---|---|---|---|
@@ -88,48 +66,33 @@ SVM에 넣었더니 87%까지 올라가서 이걸로 확정했습니다.
 | ZIL131 | 0.88 | 0.94 | 0.91 | 274 |
 | ZSU_23_4 | 0.90 | 0.97 | 0.93 | 274 |
 
-### 어떤 클래스가 왜 헷갈리는가
+### 혼동 분석
 
-혼동행렬(`data/processed/confusion_matrix.csv`)을 보면 우연이 아닌
-패턴이 보입니다. 가장 많이 헷갈리는 쌍은 **BTR60 ↔ BTR70**과
-**2S1 ↔ T62**입니다. BTR60과 BTR70은 둘 다 옛 소련제 8x8 바퀴형
-장갑차로 외형이 거의 동일해서 SAR ATR 연구에서도 유명한 "구분하기
-어려운 쌍"입니다. 2S1(자주포)과 T62(전차)도 둘 다 궤도형 차량에
-크기·형태가 비슷해서 레이더 반사 패턴이 닮아 있습니다. 이건 모델의
-결함이라기보다,애초에 실루엣이 비슷한 차량군이라는 물리적 한계에
-가깝습니다 — 광학 사진이었다면 도색이나 세부 디테일로 구분했을 것을
-SAR은 형태 정보만으로 구분해야 하기 때문입니다.
+혼동행렬(`data/processed/confusion_matrix.csv`)에서 가장 많이 헷갈린 쌍은 **BTR60 ↔ BTR70**, **2S1 ↔ T62**다.
 
-## 실행 방법
+- BTR60과 BTR70은 외형이 거의 같은 8x8 바퀴형 장갑차로, SAR ATR 연구에서도 구분이 어려운 쌍으로 알려져 있다.
+- 2S1(자주포)과 T62(전차)는 크기와 형태가 비슷한 궤도형 차량이다.
+- SAR은 형태 정보만으로 구분해야 해서, 실루엣이 비슷한 차량끼리는 구조적으로 헷갈리기 쉽다.
+
+## 실행
 
 ```bash
 pip install -r requirements.txt
 
-# 1) 원본 데이터 준비 (없다면)
-bash scripts/download_data.sh
-
-# 2) 파이프라인 실행
-python src/pipeline/build_features.py
-python src/model/train.py
-
-# 3) API 서버 실행
-uvicorn src.api.main:app --reload
-
-# 4) 테스트
-pytest
+bash scripts/download_data.sh            # 데이터 준비
+python src/pipeline/build_features.py    # HOG 특징 추출
+python src/model/train.py                # 학습·평가
+uvicorn src.api.main:app --reload        # API 서버
+pytest                                   # 테스트
 ```
 
 ## CI
 
-`.github/workflows/ci.yml` — push/PR마다 데이터 다운로드부터 피처
-추출, 학습, 테스트까지 전체 파이프라인을 처음부터 재현해서 검증합니다.
+GitHub Actions에서 데이터 다운로드 → 특징 추출 → 학습 → 테스트를 매번 처음부터 실행한다.
 
 ## 남은 과제
 
-- CNN(딥러닝) 기반 방법과 정확도·학습 시간을 직접 비교해보기 — HOG+SVM
-  87% 대비 얼마나 차이 나는지, 그 차이가 실무에서 감수할 만한지
-- BTR60/BTR70처럼 근본적으로 헷갈리는 쌍은 단일 이미지가 아니라 여러
-  관측각의 영상을 함께 보는 방식으로 개선 여지가 있는지 검토
-- 배터리 프로젝트처럼 Docker 컨테이너화 및 CI 확장
-- 확신도(confidence)가 낮은 예측에 대해 "판독 재검토 필요" 같은
-  후속 처리 정책 추가
+- CNN과 정확도·학습 시간 비교
+- BTR60/BTR70처럼 헷갈리는 쌍을 여러 관측각 영상으로 개선할 수 있는지 검토
+- Docker 컨테이너화
+- 확신도가 낮은 예측을 재검토 대상으로 분류하는 후속 처리
